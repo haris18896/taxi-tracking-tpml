@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 
 // ** Third Party Packages
 import * as Yup from 'yup'
+import moment from 'moment'
 import { useFormik } from 'formik'
 
 // ** MUI
@@ -10,12 +11,22 @@ import { Box } from '@mui/system'
 import { Button, Checkbox, FormControlLabel, Grid, Typography } from '@mui/material'
 
 // ** Components
+import useJwt from 'src/auth/jwt/useJwt'
 import { isObjEmpty } from 'src/configs/utils'
 import { FieldWrapper, TextLabel, TextInput, FieldHorizontalWrapper } from 'src/styles/input'
 
+// ** Store & Actions
+import { useDispatch, useSelector } from 'react-redux'
+import { updateTripDataAction } from 'src/store/vehicles/vehiclesAction'
+
 function TripComplete() {
   const router = useRouter()
-  const { vehicle } = router.query
+  const { vehicle, cost, distance, current_trip_id, trip_id } = router.query
+  const dispatch = useDispatch()
+  const { tripsList } = useSelector(state => state.vehicle)
+
+  const user = useJwt.getUserData()
+  const trip = tripsList[`${trip_id}`]
 
   const schema = Yup.object().shape({
     payment_type: Yup.string()
@@ -42,7 +53,18 @@ function TripComplete() {
           customer_name: values.customer_name,
           comment: values.comment,
           payment_type: values.payment_type,
-          vehicle_id: vehicle
+          vehicle_id: vehicle,
+          trip_id: trip?.id,
+          current_trip_id: current_trip_id,
+          driver_id: user?.driverId,
+          vehicle_id: vehicle,
+          point_id: trip?.points[0]?.id,
+          latitude: trip?.points[0]?.latitude,
+          longitude: trip?.points[0]?.longitude,
+          time: moment(`${new Date()}`).format('YYYY-MM-DD HH:mm:ss'),
+          total_distance: distance,
+          amount: cost,
+          action: 'trip_stop'
 
           // arrived_at_start:
           // trip_start:
@@ -55,13 +77,10 @@ function TripComplete() {
         const buffer = Buffer.from(str, 'utf8')
         const base64encoded = buffer.toString('base64')
 
-        console.log('data to be submitted : ', data, base64encoded)
+        dispatch(updateTripDataAction({ base64encoded, callback: () => router.push('/trip-view') }))
       }
     }
   })
-
-  console.log('formik values : ', formik.values)
-  console.log('formik errors : ', formik.errors)
 
   return (
     <>

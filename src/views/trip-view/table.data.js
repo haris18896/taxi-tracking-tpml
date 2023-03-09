@@ -55,12 +55,12 @@ export const columns = ({ router, vehicleId }) => {
             color='info'
             onClick={() =>
               router.push(
-                `/map?pickup=${row?.points[0]?.longitude},${row?.points[0]?.latitude}&dropoff=${row?.points[1]?.longitude},${row?.points[1]?.latitude}&` +
+                `/map?` +
                   new URLSearchParams({
-                    pickupLocation: row?.points[0]?.address.slice(0, 20),
-                    dropOffLocation: row?.points[1]?.address.slice(0, 20),
                     cost: (row?.mapData?.routes[0].duration / 100).toFixed(2),
-                    vehicle: vehicleId
+                    vehicle: vehicleId,
+                    trip_id: row?.id,
+                    totalDistance: (row?.mapData?.routes[0].distance / 1000).toFixed(2)
                   })
               )
             }

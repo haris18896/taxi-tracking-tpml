@@ -7,20 +7,24 @@ import { useRouter } from 'next/router'
 // ** Third Party Components
 import moment from 'moment'
 import { Icon } from '@iconify/react'
+import { Button } from '@mui/material'
 
 // ** hooks
 import useJwt from 'src/auth/jwt/useJwt'
 
 // ** Components
 import mapboxgl from '!mapbox-gl'
+import FallbackSpinner from 'src/@core/components/spinner'
 import mapboxDirections from '@mapbox/mapbox-sdk/services/directions'
 
 // ** Store & Actions
 import { useDispatch, useSelector } from 'react-redux'
-import { getDriverDetailsAction, getVehiclesPositionAction } from 'src/store/vehicles/vehiclesAction'
-import FallbackSpinner from 'src/@core/components/spinner'
+import {
+  getDriverDetailsAction,
+  getVehiclesPositionAction,
+  updateTripDataAction
+} from 'src/store/vehicles/vehiclesAction'
 import { resetDriverDetails, resetVehiclePosition } from 'src/store/vehicles/vehiclesSlice'
-import { Button } from '@mui/material'
 
 mapboxgl.accessToken =
   'pk.eyJ1IjoiaGFyaXN0cmFja2luZyIsImEiOiJjbGVneWQ3anowanJvM3ZsZDdiNTB2aGk2In0.-YLuxE0bmfGbf8x3GH3n7A'
@@ -28,16 +32,21 @@ mapboxgl.accessToken =
 const Home = () => {
   const router = useRouter()
   const dispatch = useDispatch()
-  const user = useJwt.getUserData()
-
   const mapContainer = useRef(null)
+  const user = useJwt.getUserData()
   const directionsClient = mapboxDirections({ accessToken: mapboxgl.accessToken })
 
-  const { driversDetailsPending, driverDetails, vehiclePosition } = useSelector(state => state.vehicle)
+  const { cost, vehicle, trip_id, totalDistance } = router.query
 
-  console.log('vehiclePosition : ', vehiclePosition)
+  const { driversDetailsPending, driverDetails, vehiclePosition, tripsList, updateTrip } = useSelector(
+    state => state.vehicle
+  )
 
-  const { pickup, dropoff, pickupLocation, dropOffLocation, cost, vehicle } = router.query
+  const trip = tripsList[`${trip_id}`]
+  const pickupLocation = trip?.points[0]?.address.slice(0, 20)
+  const dropOffLocation = trip?.points[1]?.address.slice(0, 20)
+  const pickUpCoordinates = [parseFloat(trip?.points[0]?.longitude), parseFloat(trip?.points[0]?.latitude)]
+  const dropoffCoordinates = [parseFloat(trip?.points[1]?.longitude), parseFloat(trip?.points[1]?.latitude)]
 
   const [carPos, setCarPos] = useState(null)
   const [mapData, setMapData] = useState(null)
@@ -46,8 +55,25 @@ const Home = () => {
   const [tripStart, setTripStart] = useState(false)
   const [intervalId, setIntervalId] = useState(null)
 
-  const pickUpCoordinates = pickup && [pickup.split(',')[0], pickup.split(',')[1]]
-  const dropoffCoordinates = dropoff && [dropoff.split(',')[0], pickup.split(',')[1]]
+  const distance =
+    mapData?.routes[0].distance > 1000
+      ? `${(mapData?.routes[0].distance / 1000).toFixed(1)} kms`
+      : `${(mapData?.routes[0].distance).toFixed(2)} m`
+
+  // const pickUpCoordinates = pickup && [pickup.split(',')[0], pickup.split(',')[1]]
+  // const dropoffCoordinates = dropoff && [dropoff.split(',')[0], pickup.split(',')[1]]
+
+  const update_data = {
+    trip_id: trip?.id,
+    driver_id: user?.driverId,
+    vehicle_id: vehicle,
+    point_id: trip?.points[0]?.id,
+    latitude: trip?.points[0]?.latitude,
+    longitude: trip?.points[0]?.longitude,
+    time: moment(`${new Date()}`).format('YYYY-MM-DD HH:mm:ss'),
+    total_distance: totalDistance,
+    amount: cost
+  }
 
   // ** Marker Function
   const addToMap = (map, coordinates, popupContent, isCar = false) => {
@@ -165,16 +191,13 @@ const Home = () => {
           }
 
           if (tripStart) {
-            setCarPos([74.3182677253, 31.4972652933]) // near dropoff
-            getMapData([74.3182677253, 31.4972652933], pickUpCoordinates) // near dropoff
+            setCarPos([74.3185019379, 31.4973777114]) // near dropoff
+            getMapData([74.3185019379, 31.4973777114], pickUpCoordinates) // near dropoff
           }
         }
       })
     )
   }, [tripStart])
-
-  console.log('tripStart: ', tripStart, 'mapData : ', mapData)
-  console.log('car Position : ', carPos)
 
   useEffect(() => {
     if (carPos) {
@@ -286,6 +309,18 @@ const Home = () => {
   //   }
   // }, [])
 
+  useEffect(() => {
+    if (!tripStart && mapData?.routes[0]?.distance < 100) {
+      const data = { ...update_data, action: 'arrived_at_start', current_trip_id: 0 }
+
+      const str = JSON.stringify(data)
+      const buffer = Buffer.from(str, 'utf8')
+      const base64encoded = buffer.toString('base64')
+
+      dispatch(updateTripDataAction({ base64encoded, callback: () => console.log('update trip api') }))
+    }
+  }, [mapData])
+
   return (
     <div className='map-wrapper'>
       <div className='back-button-container' onClick={() => router.push('/trip-view')}>
@@ -300,12 +335,7 @@ const Home = () => {
         <p>Pickup : {pickupLocation}</p>
         <p>Dropoff : {dropOffLocation}</p>
         <p>Duration : {hours > 0 ? `${hours} Hours ${minutes} minutes` : `${minutes} minutes`}</p>
-        <p>
-          Distance :{' '}
-          {mapData?.routes[0].distance > 1000
-            ? `${(mapData?.routes[0].distance / 1000).toFixed(1)} kms`
-            : `${(mapData?.routes[0].distance).toFixed(2)} m`}
-        </p>
+        <p>Distance : {distance}</p>
         <p>Cost : ${cost}</p>
       </div>
       {!tripStart && (
@@ -315,8 +345,16 @@ const Home = () => {
           color='info'
           disabled={mapData?.routes[0].distance > 100}
           onClick={() => {
-            setCarPos([74.3182677253, 31.4972652933]) // near dropoff
+            setCarPos([74.3185019379, 31.4973777114]) // near dropoff
             setTripStart(true)
+
+            const data = { ...update_data, action: 'trip_start', current_trip_id: updateTrip?.data?.current_trip_id }
+
+            const str = JSON.stringify(data)
+            const buffer = Buffer.from(str, 'utf8')
+            const base64encoded = buffer.toString('base64')
+
+            dispatch(updateTripDataAction({ base64encoded, callback: () => console.log('update trip api') }))
           }}
         >
           Start Trip
@@ -328,9 +366,11 @@ const Home = () => {
           className='start-trip-button'
           variant='contained'
           color='success'
-          disabled={mapData?.routes[0].distance > 400}
+          disabled={mapData?.routes[0].distance > 500}
           onClick={() => {
-            router.push(`/trip-complete?vehicle=${vehicle}`)
+            router.push(
+              `/trip-complete?vehicle=${vehicle}&cost=${cost}&trip_id=${trip?.id}&distance=${totalDistance}&current_trip_id=${updateTrip?.data?.current_trip_id}`
+            )
           }}
         >
           Complete
